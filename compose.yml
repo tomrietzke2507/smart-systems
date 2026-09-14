@@ -1,0 +1,29 @@
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: mobilefrost_user
+      POSTGRES_PASSWORD: secretpassword
+      POSTGRES_DB: mobilefrost_db
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  controller:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      - db
+    devices:
+      - "/dev/ttyACM0:/dev/ttyACM0"  # Reicht den USB-Port des Pi in den Container
+    group_add:
+      - keep-groups                  # Zwingend notwendig für Podman & USB-Rechte
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=mobilefrost_user
+      - DB_PASSWORD=secretpassword
+      - DB_NAME=mobilefrost_db
+
+volumes:
+  pgdata:
