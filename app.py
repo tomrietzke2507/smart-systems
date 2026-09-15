@@ -46,17 +46,23 @@ def main():
                     # 2. Display aktualisieren
                     display_cmd = f"T:{temp_val:.1f}\n"
                     ser_aktor.write(display_cmd.encode('utf-8'))
+                    time.sleep(0.2) # Dem Display kurz Zeit zum Löschen geben
 
                     # 3. Logik: Kühlen & Lüften bei > 26 Grad
                     if temp_val > 26.0:
                         print("🚨 Zu warm! Lüfter AN & Klappe AUF.")
                         ser_aktor.write("F:255\n".encode('utf-8'))
-                        time.sleep(0.1) # Kurze Pause, damit der Arduino mitkommt
+                        
+                        # WICHTIG: Halbe Sekunde warten, bis der Lüfter hochgefahren ist!
+                        time.sleep(0.5) 
+                        
                         ser_aktor.write("S:90\n".encode('utf-8'))
                     else:
                         print("✅ Temperatur OK. Lüfter AUS & Klappe ZU.")
                         ser_aktor.write("F:0\n".encode('utf-8'))
-                        time.sleep(0.1)
+                        
+                        time.sleep(0.5) # Auch beim Ausschalten kurz warten
+                        
                         ser_aktor.write("S:0\n".encode('utf-8'))
                         
             except Exception as e:
