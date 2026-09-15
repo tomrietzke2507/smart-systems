@@ -1,7 +1,7 @@
 import os, time, serial, psycopg2
 from psycopg2 import OperationalError
 
-# HINWEIS: Falls die Ports vertauscht sind, tausche ACM0 und ACM1 hier um!
+# Passe hier Deine USB-Namen an (z.B. /dev/arduino_sensor oder /dev/ttyACM0)
 PORT_SENSOR = '/dev/arduino_sensor'  
 PORT_AKTOR  = '/dev/arduino_aktor'  
 BAUD_RATE = 9600
@@ -18,9 +18,22 @@ def connect_db():
         except OperationalError:
             time.sleep(3)
 
+# FIX 1: Tabelle sicherstellen, bevor wir reinschreiben
+def init_db(conn):
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS temperatures (
+            id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sensor_id VARCHAR(50), value NUMERIC(5, 2))''')
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Fehler beim Erstellen der Tabelle: {e}")
+
 def main():
     print("Starte Mobilefrost Zentrale (Sensor & Aktor)...")
     conn = connect_db()
+    init_db(conn) # Ruft den Fix 1 auf
     cursor = conn.cursor()
     
     try:
@@ -33,41 +46,38 @@ def main():
         exit(1)
 
     while True:
-            try:
-                line = ser_sensor.readline().decode('utf-8', errors='ignore').strip()
-                if line and "Aktuelle Temperatur:" in line:
-                    temp_val = float(line.split(":")[1].strip())
-                    print(f"Gemessen: {temp_val}°C")
+        try:
+            line = ser_sensor.readline().decode('utf-8', errors='ignore').strip()
+            if line and "Aktuelle Temperatur:" in line:
+                temp_val = float(line.split(":")[1].strip())
+                print(f"Gemessen: {temp_val}°C")
+                
+                # 1. Daten in Datenbank speichern
+                cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", ("Arduino_1", temp_val))
+                conn.commit()
+
+                # 2. Display aktualisieren
+                display_cmd = f"T:{temp_val:.1f}\n"
+                ser_aktor.write(display_cmd.encode('utf-8'))
+                time.sleep(0.2) 
+
+                # 3. Logik: Kühlen & Lüften bei > 26 Grad
+                if temp_val > 26.0:
+                    print("🚨 Zu warm! Lüfter AN & Klappe AUF.")
+                    ser_aktor.write("F:255\n".encode('utf-8'))
+                    time.sleep(0.5) 
+                    ser_aktor.write("S:90\n".encode('utf-8'))
+                else:
+                    print("✅ Temperatur OK. Lüfter AUS & Klappe ZU.")
+                    ser_aktor.write("F:0\n".encode('utf-8'))
+                    time.sleep(0.5)
+                    ser_aktor.write("S:0\n".encode('utf-8'))
                     
-                    # 1. Daten in Datenbank speichern
-                    cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", ("Arduino_1", temp_val))
-                    conn.commit()
-
-                    # 2. Display aktualisieren
-                    display_cmd = f"T:{temp_val:.1f}\n"
-                    ser_aktor.write(display_cmd.encode('utf-8'))
-                    time.sleep(0.2) # Dem Display kurz Zeit zum Löschen geben
-
-                    # 3. Logik: Kühlen & Lüften bei > 26 Grad
-                    if temp_val > 26.0:
-                        print("🚨 Zu warm! Lüfter AN & Klappe AUF.")
-                        ser_aktor.write("F:255\n".encode('utf-8'))
-                        
-                        # WICHTIG: Halbe Sekunde warten, bis der Lüfter hochgefahren ist!
-                        time.sleep(0.5) 
-                        
-                        ser_aktor.write("S:90\n".encode('utf-8'))
-                    else:
-                        print("✅ Temperatur OK. Lüfter AUS & Klappe ZU.")
-                        ser_aktor.write("F:0\n".encode('utf-8'))
-                        
-                        time.sleep(0.5) # Auch beim Ausschalten kurz warten
-                        
-                        ser_aktor.write("S:0\n".encode('utf-8'))
-                        
-            except Exception as e:
-                print(f"Fehler: {e}")
-                time.sleep(1)
+        except Exception as e:
+            print(f"Fehler: {e}")
+            # FIX 2: Wenn die Datenbank meckert, die blockierte Transaktion zurücksetzen!
+            conn.rollback() 
+            time.sleep(1)
 
 if __name__ == '__main__':
     main()
