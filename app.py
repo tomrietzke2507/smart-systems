@@ -33,32 +33,35 @@ def main():
         exit(1)
 
     while True:
-        try:
-            line = ser_sensor.readline().decode('utf-8', errors='ignore').strip()
-            if line and "Aktuelle Temperatur:" in line:
-                temp_val = float(line.split(":")[1].strip())
-                print(f"Gemessen: {temp_val}°C")
-                
-                # 1. Daten in Datenbank speichern
-                cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", ("Arduino_1", temp_val))
-                conn.commit()
-
-                # 2. Display aktualisieren
-                # \n ist wichtig, damit readStringUntil('\n') im Arduino funktioniert
-                display_cmd = f"T:{temp_val:.1f}\n"
-                ser_aktor.write(display_cmd.encode('utf-8'))
-
-                # 3. Logik: Lüfter einschalten bei > 26 Grad (wenn LED Rot wird)
-                if temp_val > 26.0:
-                    print("🚨 Zu warm! Lüfter AN.")
-                    ser_aktor.write("F:255\n".encode('utf-8'))
-                else:
-                    print("✅ Temperatur OK. Lüfter AUS.")
-                    ser_aktor.write("F:0\n".encode('utf-8'))
+            try:
+                line = ser_sensor.readline().decode('utf-8', errors='ignore').strip()
+                if line and "Aktuelle Temperatur:" in line:
+                    temp_val = float(line.split(":")[1].strip())
+                    print(f"Gemessen: {temp_val}°C")
                     
-        except Exception as e:
-            print(f"Fehler: {e}")
-            time.sleep(1)
+                    # 1. Daten in Datenbank speichern
+                    cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", ("Arduino_1", temp_val))
+                    conn.commit()
+
+                    # 2. Display aktualisieren
+                    display_cmd = f"T:{temp_val:.1f}\n"
+                    ser_aktor.write(display_cmd.encode('utf-8'))
+
+                    # 3. Logik: Kühlen & Lüften bei > 26 Grad
+                    if temp_val > 26.0:
+                        print("🚨 Zu warm! Lüfter AN & Klappe AUF.")
+                        ser_aktor.write("F:255\n".encode('utf-8'))
+                        time.sleep(0.1) # Kurze Pause, damit der Arduino mitkommt
+                        ser_aktor.write("S:90\n".encode('utf-8'))
+                    else:
+                        print("✅ Temperatur OK. Lüfter AUS & Klappe ZU.")
+                        ser_aktor.write("F:0\n".encode('utf-8'))
+                        time.sleep(0.1)
+                        ser_aktor.write("S:0\n".encode('utf-8'))
+                        
+            except Exception as e:
+                print(f"Fehler: {e}")
+                time.sleep(1)
 
 if __name__ == '__main__':
     main()
