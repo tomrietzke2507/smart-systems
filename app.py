@@ -2,8 +2,8 @@ import os, time, serial, psycopg2
 from psycopg2 import OperationalError
 
 # HINWEIS: Falls die Ports vertauscht sind, tausche ACM0 und ACM1 hier um!
-PORT_SENSOR = '/dev/ttyACM0'  
-PORT_AKTOR  = '/dev/ttyACM1'  
+PORT_SENSOR = '/dev/arduino_sensor'  
+PORT_AKTOR  = '/dev/arduino_aktor'  
 BAUD_RATE = 9600
 
 def connect_db():
