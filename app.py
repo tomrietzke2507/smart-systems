@@ -1,83 +1,63 @@
-import os
-import time
-import serial
-import psycopg2
+import os, time, serial, psycopg2
 from psycopg2 import OperationalError
 
-# --- KONFIGURATION ---
-COM_PORT = '/dev/ttyACM0'  # Der Standard-USB-Port auf dem Raspberry Pi
+# HINWEIS: Falls die Ports vertauscht sind, tausche ACM0 und ACM1 hier um!
+PORT_SENSOR = '/dev/ttyACM0'  
+PORT_AKTOR  = '/dev/ttyACM1'  
 BAUD_RATE = 9600
-SENSOR_ID = 'Arduino_Kuehlraum_1'
 
 def connect_db():
-    print("Verbinde mit PostgreSQL...")
     while True:
         try:
             conn = psycopg2.connect(
-                host=os.environ.get("DB_HOST"),
-                port=os.environ.get("DB_PORT"),
-                database=os.environ.get("DB_NAME"),
-                user=os.environ.get("DB_USER"),
+                host=os.environ.get("DB_HOST"), port=os.environ.get("DB_PORT"),
+                database=os.environ.get("DB_NAME"), user=os.environ.get("DB_USER"),
                 password=os.environ.get("DB_PASSWORD")
             )
-            print("✅ Mit PostgreSQL verbunden!")
             return conn
         except OperationalError:
-            print("Warte auf Datenbank (noch nicht bereit)...")
             time.sleep(3)
-
-def init_db(conn):
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS temperatures (
-            id SERIAL PRIMARY KEY,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            sensor_id VARCHAR(50),
-            value NUMERIC(5, 2)
-        )
-    ''')
-    conn.commit()
 
 def main():
-    print("Starte Mobilefrost USB-Gateway auf dem Raspberry Pi...")
+    print("Starte Mobilefrost Zentrale (Sensor & Aktor)...")
     conn = connect_db()
-    init_db(conn)
     cursor = conn.cursor()
+    
+    try:
+        ser_sensor = serial.Serial(PORT_SENSOR, BAUD_RATE, timeout=2)
+        ser_aktor = serial.Serial(PORT_AKTOR, BAUD_RATE, timeout=2)
+        time.sleep(2)
+        print("✅ Beide Arduinos verbunden!")
+    except Exception as e:
+        print(f"❌ USB-Fehler: {e}")
+        exit(1)
 
-    # 1. Serielle Verbindung aufbauen (mit Warteschleife)
     while True:
         try:
-            ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=2)
-            time.sleep(2) # Dem Arduino Zeit zum Neustarten geben
-            print(f"✅ Verbunden mit Arduino an {COM_PORT}")
-            break
-        except Exception as e:
-            print(f"❌ Warte auf Arduino an {COM_PORT}... Einstecken!")
-            time.sleep(3)
-
-    # 2. Endlosschleife zum Datenlesen
-    while True:
-        try:
-            # Zeile einlesen und bereinigen
-            line = ser.readline().decode('utf-8', errors='ignore').strip()
-            
-            # Prüfen, ob es unsere gesuchte Temperatur-Zeile ist
+            line = ser_sensor.readline().decode('utf-8', errors='ignore').strip()
             if line and "Aktuelle Temperatur:" in line:
-                # Zahl vom Text trennen
-                temp_str = line.split(":")[1].strip()
-                temp_val = float(temp_str)
+                temp_val = float(line.split(":")[1].strip())
+                print(f"Gemessen: {temp_val}°C")
                 
-                print(f"🌡️ Gemessen: {temp_val}°C -> Speichere in DB")
-                
-                # In die Datenbank schreiben
-                cursor.execute(
-                    "INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", 
-                    (SENSOR_ID, temp_val)
-                )
+                # 1. Daten in Datenbank speichern
+                cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", ("Arduino_1", temp_val))
                 conn.commit()
-                
+
+                # 2. Display aktualisieren
+                # \n ist wichtig, damit readStringUntil('\n') im Arduino funktioniert
+                display_cmd = f"T:{temp_val:.1f}\n"
+                ser_aktor.write(display_cmd.encode('utf-8'))
+
+                # 3. Logik: Lüfter einschalten bei > 26 Grad (wenn LED Rot wird)
+                if temp_val > 26.0:
+                    print("🚨 Zu warm! Lüfter AN.")
+                    ser_aktor.write("F:255\n".encode('utf-8'))
+                else:
+                    print("✅ Temperatur OK. Lüfter AUS.")
+                    ser_aktor.write("F:0\n".encode('utf-8'))
+                    
         except Exception as e:
-            print(f"⚠️ Fehler beim Lesen/Speichern: {e}")
+            print(f"Fehler: {e}")
             time.sleep(1)
 
 if __name__ == '__main__':

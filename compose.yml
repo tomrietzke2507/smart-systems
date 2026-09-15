@@ -15,9 +15,10 @@ services:
     depends_on:
       - db
     devices:
-      - "/dev/ttyACM0:/dev/ttyACM0"  # Reicht den USB-Port des Pi in den Container
+      - "/dev/ttyACM0:/dev/ttyACM0"  # Arduino 1 (Sensor)
+      - "/dev/ttyACM1:/dev/ttyACM1"  # Arduino 2 (Aktor)
     group_add:
-      - keep-groups                  # Zwingend notwendig für Podman & USB-Rechte
+      - keep-groups                 # Zwingend notwendig für Podman & USB-Rechte
     environment:
       - DB_HOST=db
       - DB_PORT=5432
