@@ -3,9 +3,16 @@ import psycopg2
 import time
 
 # --- KONFIGURATION ---
-COM_PORT = 'COM4'  # <-- HIER DEINEN COM-PORT EINTRAGEN
+SENSORS = [
+    {"id": "arduino_sensor_marten", "port": "COM4"},  # <-- COM-Port anpassen
+    {"id": "arduino_sensor_andor", "port": "COM5"},   # <-- COM-Port anpassen
+]
 BAUD_RATE = 9600
-SENSOR_ID = 'Arduino_USB_1'
+
+def parse_temperature(line):
+    if line and "Aktuelle Temperatur:" in line:
+        return float(line.split(":")[1].strip())
+    return None
 
 def connect_db():
     print("Verbinde mit PostgreSQL in Podman...")
@@ -23,43 +30,57 @@ def connect_db():
         print(f"❌ Fehler bei der DB-Verbindung: {e}")
         exit(1)
 
+def init_db(conn):
+    try:
+        cursor = conn.cursor()
+        cursor.execute('''CREATE TABLE IF NOT EXISTS temperatures (
+            id SERIAL PRIMARY KEY, timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            sensor_id VARCHAR(50), value NUMERIC(5, 2))''')
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        print(f"Fehler beim Erstellen der Tabelle: {e}")
+
 def main():
     conn = connect_db()
+    init_db(conn)
     cursor = conn.cursor()
 
-    print(f"Öffne Verbindung zu {COM_PORT}...")
     try:
-        # Verbindung zum Arduino aufbauen
-        ser = serial.Serial(COM_PORT, BAUD_RATE, timeout=2)
+        sensor_connections = [
+            {
+                "id": sensor["id"],
+                "serial": serial.Serial(sensor["port"], BAUD_RATE, timeout=2),
+            }
+            for sensor in SENSORS
+        ]
         time.sleep(2) # Kurz warten, da der Arduino beim Verbinden oft neu startet
-        print("✅ Verbunden! Lese Daten...\n")
+        print("✅ Sensoren verbunden! Lese Daten...\n")
     except Exception as e:
         print(f"❌ Konnte COM-Port nicht öffnen. Ist der Serielle Monitor noch offen? Fehler: {e}")
         exit(1)
 
     while True:
         try:
-            # Zeile über USB einlesen und dekodieren
-            line = ser.readline().decode('utf-8').strip()
-            
-            # Wenn die Zeile Daten enthält und unser Muster aufweist
-            if line and "Aktuelle Temperatur:" in line:
-                # Zerschneide den String am Doppelpunkt und nimm den rechten Teil
-                # Aus "Aktuelle Temperatur: 22.50" wird "22.50"
-                temp_str = line.split(":")[1].strip()
-                temp_val = float(temp_str)
+            for sensor in sensor_connections:
+                # Zeile über USB einlesen und dekodieren
+                line = sensor["serial"].readline().decode('utf-8', errors='ignore').strip()
+                temp_val = parse_temperature(line)
+                if temp_val is None:
+                    continue
                 
-                print(f"Gelesen über USB: {temp_val}°C -> Speichere in DB...")
+                print(f"Gelesen über USB ({sensor['id']}): {temp_val}°C -> Speichere in DB...")
                 
                 # In die Datenbank schreiben
                 cursor.execute(
                     "INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", 
-                    (SENSOR_ID, temp_val)
+                    (sensor["id"], temp_val)
                 )
                 conn.commit()
                 
         except Exception as e:
             print(f"Fehler in der Leseschleife: {e}")
+            conn.rollback()
             time.sleep(1)
 
 if __name__ == '__main__':

@@ -29,12 +29,23 @@ void loop() {
     String command = Serial.readStringUntil('\n');
     command.trim(); 
 
-    // BEFEHL 1: Temperatur (z.B. "T:22.50")
-    if (command.startsWith("T:")) {
-      String tempVal = command.substring(2); 
-      lcd.clear();
-      lcd.setCursor(0, 0);
-      lcd.print(tempVal + "C"); 
+    // BEFEHL 1: Temperaturen (z.B. "D:21.7;22.4")
+    if (command.startsWith("D:")) {
+      int separatorIndex = command.indexOf(';');
+      if (separatorIndex > 2) {
+        String tempLeft = command.substring(2, separatorIndex);
+        String tempRight = command.substring(separatorIndex + 1);
+
+        lcd.setCursor(0, 0);
+        lcd.print("    ");
+        lcd.setCursor(0, 0);
+        lcd.print(tempLeft.substring(0, 4));
+
+        lcd.setCursor(4, 0);
+        lcd.print("    ");
+        lcd.setCursor(4, 0);
+        lcd.print(tempRight.substring(0, 4));
+      }
     }
     
     // BEFEHL 2: Lüfter (z.B. "F:255")

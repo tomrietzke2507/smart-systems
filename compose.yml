@@ -15,7 +15,8 @@ services:
     depends_on:
       - db
     devices:
-      - "/dev/arduino_sensor:/dev/arduino_sensor"
+      - "/dev/arduino_sensor_marten:/dev/arduino_sensor_marten"
+      - "/dev/arduino_sensor_andor:/dev/arduino_sensor_andor"
       - "/dev/arduino_aktor:/dev/arduino_aktor"
     group_add:
       - keep-groups                 # Zwingend notwendig für Podman & USB-Rechte

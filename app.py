@@ -1,10 +1,30 @@
 import os, time, serial, psycopg2
 from psycopg2 import OperationalError
 
-# Passe hier Deine USB-Namen an (z.B. /dev/arduino_sensor oder /dev/ttyACM0)
-PORT_SENSOR = '/dev/arduino_sensor'  
+# Passe hier Deine USB-Namen an (z.B. /dev/arduino_sensor_marten oder /dev/ttyACM0)
+SENSORS = [
+    {"id": "arduino_sensor_marten", "port": "/dev/arduino_sensor_marten"},
+    {"id": "arduino_sensor_andor", "port": "/dev/arduino_sensor_andor"},
+]
 PORT_AKTOR  = '/dev/arduino_aktor'  
 BAUD_RATE = 9600
+
+def parse_temperature(line):
+    if line and "Aktuelle Temperatur:" in line:
+        return float(line.split(":")[1].strip())
+    return None
+
+def format_display_value(temp_val):
+    if temp_val is None:
+        return "--.-"
+    return f"{temp_val:.1f}"[-4:]
+
+def format_display_command(last_temperatures):
+    values = [
+        format_display_value(last_temperatures.get(sensor["id"]))
+        for sensor in SENSORS
+    ]
+    return f"D:{values[0]};{values[1]}\n"
 
 def connect_db():
     while True:
@@ -37,32 +57,46 @@ def main():
     cursor = conn.cursor()
     
     try:
-        ser_sensor = serial.Serial(PORT_SENSOR, BAUD_RATE, timeout=2)
+        sensor_connections = [
+            {
+                "id": sensor["id"],
+                "serial": serial.Serial(sensor["port"], BAUD_RATE, timeout=2),
+            }
+            for sensor in SENSORS
+        ]
         ser_aktor = serial.Serial(PORT_AKTOR, BAUD_RATE, timeout=2)
         time.sleep(2)
-        print("✅ Beide Arduinos verbunden!")
+        print("✅ Sensoren und Aktor verbunden!")
     except Exception as e:
         print(f"❌ USB-Fehler: {e}")
         exit(1)
 
+    last_temperatures = {}
+
     while True:
         try:
-            line = ser_sensor.readline().decode('utf-8', errors='ignore').strip()
-            if line and "Aktuelle Temperatur:" in line:
-                temp_val = float(line.split(":")[1].strip())
-                print(f"Gemessen: {temp_val}°C")
+            for sensor in sensor_connections:
+                line = sensor["serial"].readline().decode('utf-8', errors='ignore').strip()
+                temp_val = parse_temperature(line)
+                if temp_val is None:
+                    continue
+
+                sensor_id = sensor["id"]
+                last_temperatures[sensor_id] = temp_val
+                print(f"Gemessen ({sensor_id}): {temp_val}°C")
                 
                 # 1. Daten in Datenbank speichern
-                cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", ("Arduino_1", temp_val))
+                cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", (sensor_id, temp_val))
                 conn.commit()
 
-                # 2. Display aktualisieren
-                display_cmd = f"T:{temp_val:.1f}\n"
+                # 2. Display aktualisieren: erster Sensor links, zweiter Sensor rechts
+                max_temp = max(last_temperatures.values())
+                display_cmd = format_display_command(last_temperatures)
                 ser_aktor.write(display_cmd.encode('utf-8'))
                 time.sleep(0.2) 
 
-                # 3. Logik: Kühlen & Lüften bei > 26 Grad
-                if temp_val > 26.0:
+                # 3. Logik: Kühlen & Lüften, sobald ein Sensor > 26 Grad misst
+                if max_temp > 26.0:
                     print("🚨 Zu warm! Lüfter AN & Klappe AUF.")
                     ser_aktor.write("F:255\n".encode('utf-8'))
                     time.sleep(0.5) 
