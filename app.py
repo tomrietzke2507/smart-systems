@@ -92,6 +92,7 @@ def main():
                 # 2. Display aktualisieren: erster Sensor links, zweiter Sensor rechts
                 max_temp = max(last_temperatures.values())
                 display_cmd = format_display_command(last_temperatures)
+                print(f"LCD-Kommando: {display_cmd.strip()}")
                 ser_aktor.write(display_cmd.encode('utf-8'))
                 time.sleep(0.2) 
 

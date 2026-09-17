@@ -17,7 +17,7 @@ Aktuelle Temperatur: 22.50
 ```
 
 Each reading is written to the `temperatures` table with the matching `sensor_id`.
-The actuator Arduino receives both latest temperatures as `D:<marten>;<andor>`, for example `D:21.7;22.4`. On the 8x2 LCD, Marten is shown in the first row on the left and Andor on the right.
+The actuator Arduino receives both latest temperatures as `D:<marten>;<andor>`, for example `D:21.7;22.4`. On the 16x2 LCD, Marten is shown in the first row on the left and Andor on the right.
 
 ## Windows bridge
 

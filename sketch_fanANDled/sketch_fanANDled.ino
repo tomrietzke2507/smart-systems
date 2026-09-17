@@ -17,9 +17,9 @@ void setup() {
   klappenServo.attach(SERVO_PIN);
   klappenServo.write(0);
   
-  lcd.begin(8, 2); 
+  lcd.begin(16, 2);
   lcd.setCursor(0, 0);
-  lcd.print("MobileFr"); 
+  lcd.print("MobileFrost");
   lcd.setCursor(0, 1);
   lcd.print("Warte...");
 }
@@ -37,15 +37,22 @@ void loop() {
         String tempRight = command.substring(separatorIndex + 1);
 
         lcd.setCursor(0, 0);
-        lcd.print("    ");
+        lcd.print("        ");
         lcd.setCursor(0, 0);
-        lcd.print(tempLeft.substring(0, 4));
+        lcd.print(tempLeft.substring(0, 4) + "C");
 
-        lcd.setCursor(4, 0);
-        lcd.print("    ");
-        lcd.setCursor(4, 0);
-        lcd.print(tempRight.substring(0, 4));
+        lcd.setCursor(8, 0);
+        lcd.print("        ");
+        lcd.setCursor(8, 0);
+        lcd.print(tempRight.substring(0, 4) + "C");
       }
+    }
+    else if (command.startsWith("T:")) {
+      String tempVal = command.substring(2);
+      lcd.setCursor(0, 0);
+      lcd.print("                ");
+      lcd.setCursor(0, 0);
+      lcd.print(tempVal.substring(0, 4) + "C");
     }
     
     // BEFEHL 2: Lüfter (z.B. "F:255")
