@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#f3f1eb">
+    <title>MobileFrost Temperaturverlauf</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js" defer></script>
+    <script src="{{ url_for('static', filename='dashboard.js') }}" defer></script>
+  </head>
+  <body>
+    <main class="dashboard">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Kühlsystem · Raspberry Pi</p>
+          <h1>MobileFrost</h1>
+        </div>
+        <div class="connection" aria-live="polite">
+          <span class="status-dot" id="status-dot"></span>
+          <div>
+            <strong id="connection-label">Verbinde…</strong>
+            <span id="refresh-label">Noch keine Daten</span>
+          </div>
+        </div>
+      </header>
+
+      <section class="current-grid" aria-label="Aktuelle Temperaturen">
+        <article class="reading reading-marten">
+          <div class="reading-head">
+            <span class="sensor-mark"></span>
+            <h2>Marten</h2>
+          </div>
+          <p class="temperature" id="value-marten">--.-<span>°C</span></p>
+          <time id="time-marten">Keine Messung</time>
+        </article>
+        <article class="reading reading-andor">
+          <div class="reading-head">
+            <span class="sensor-mark"></span>
+            <h2>Andor</h2>
+          </div>
+          <p class="temperature" id="value-andor">--.-<span>°C</span></p>
+          <time id="time-andor">Keine Messung</time>
+        </article>
+        <article class="reading reading-luis">
+          <div class="reading-head">
+            <span class="sensor-mark"></span>
+            <h2>Luis</h2>
+          </div>
+          <p class="temperature" id="value-luis">--.-<span>°C</span></p>
+          <time id="time-luis">Keine Messung</time>
+        </article>
+      </section>
+
+      <section class="chart-section" aria-labelledby="chart-title">
+        <div class="chart-toolbar">
+          <div>
+            <p class="eyebrow">Messhistorie</p>
+            <h2 id="chart-title">Temperaturverlauf</h2>
+          </div>
+          <div class="range-control" aria-label="Zeitraum auswählen">
+            <button type="button" data-hours="1">1 Std.</button>
+            <button type="button" data-hours="24" class="active" aria-pressed="true">24 Std.</button>
+            <button type="button" data-hours="168">7 Tage</button>
+          </div>
+        </div>
+        <div class="chart-frame">
+          <canvas id="temperature-chart" aria-label="Temperaturverlauf aller Sensoren"></canvas>
+          <div class="chart-state" id="chart-state" aria-live="polite">Messwerte werden geladen…</div>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

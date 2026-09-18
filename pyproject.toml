@@ -8,9 +8,14 @@ version = "0.1.0"
 description = "Controller for the Mobilefrost sensor system"
 requires-python = ">=3.9"
 dependencies = [
+    "Flask>=3.0,<4",
+    "gunicorn>=22,<24",
     "psycopg2-binary>=2.9,<3",
     "pyserial>=3.5,<4",
 ]
+
+[tool.setuptools.package-data]
+mobilefrost = ["templates/*.html", "static/*.css", "static/*.js"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -5,16 +5,20 @@ import psycopg2
 from psycopg2 import OperationalError
 
 
+def connect_db_once():
+    return psycopg2.connect(
+        host=os.environ.get("DB_HOST"),
+        port=os.environ.get("DB_PORT"),
+        database=os.environ.get("DB_NAME"),
+        user=os.environ.get("DB_USER"),
+        password=os.environ.get("DB_PASSWORD"),
+    )
+
+
 def connect_db():
     while True:
         try:
-            return psycopg2.connect(
-                host=os.environ.get("DB_HOST"),
-                port=os.environ.get("DB_PORT"),
-                database=os.environ.get("DB_NAME"),
-                user=os.environ.get("DB_USER"),
-                password=os.environ.get("DB_PASSWORD"),
-            )
+            return connect_db_once()
         except OperationalError as error:
             print(f"Datenbank nicht erreichbar: {error}")
             time.sleep(3)
@@ -44,3 +48,34 @@ def store_temperature(cursor, connection, sensor_id, temperature):
         connection.rollback()
         print(f"Datenbankfehler ({sensor_id}): {error}")
         return False
+
+
+def fetch_dashboard_data(connection, hours):
+    cursor = connection.cursor()
+    try:
+        cursor.execute(
+            """SELECT sensor_id, timestamp, value
+               FROM temperatures
+               WHERE timestamp >= CURRENT_TIMESTAMP - (%s * INTERVAL '1 hour')
+               ORDER BY timestamp ASC""",
+            (hours,),
+        )
+        history_rows = cursor.fetchall()
+        cursor.execute(
+            """SELECT DISTINCT ON (sensor_id) sensor_id, timestamp, value
+               FROM temperatures
+               ORDER BY sensor_id, timestamp DESC"""
+        )
+        latest_rows = cursor.fetchall()
+    finally:
+        cursor.close()
+
+    series = {}
+    for sensor_id, timestamp, value in history_rows:
+        series.setdefault(sensor_id, []).append((timestamp, float(value)))
+
+    latest = {
+        sensor_id: (timestamp, float(value))
+        for sensor_id, timestamp, value in latest_rows
+    }
+    return {"series": series, "latest": latest}

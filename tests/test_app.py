@@ -328,6 +328,13 @@ class ArduinoIntegrationTests(unittest.TestCase):
         self.assertNotIn('"/dev/arduino_sensor_luis:/dev/arduino_sensor_luis"', compose)
         self.assertIn("keep-groups", compose)
 
+    def test_compose_exposes_dashboard_on_loopback_only(self):
+        compose = (PROJECT_ROOT / "compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn("dashboard:", compose)
+        self.assertIn('"127.0.0.1:8080:8080"', compose)
+        self.assertIn("mobilefrost.dashboard:create_app()", compose)
+
     def test_humidity_sketch_uses_requested_hardware(self):
         sketch = (
             PROJECT_ROOT / "sketches" / "sketch_humidity" / "sketch_humidity.ino"

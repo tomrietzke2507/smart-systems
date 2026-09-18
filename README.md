@@ -57,12 +57,50 @@ For `sketch_humidity`, install the Arduino libraries `DHT sensor library` and
 Start the services on the Linux host that exposes the four device paths:
 
 ```text
-docker compose up --build
+podman compose up -d --build
 ```
 
 The Compose configuration mounts Linux `/dev` so hot-plugged serial devices become
 visible inside the running container. `group_add: keep-groups` preserves the host
 user's supplementary groups for serial access with rootless Podman.
+
+## Temperature dashboard over Tailscale
+
+The `dashboard` service reads the existing PostgreSQL measurements and is published
+only on Raspberry Pi loopback port `8080`. It shows current values and the last hour,
+24 hours, or seven days, refreshing every ten seconds.
+
+After starting the Compose stack, verify the local service on the Pi:
+
+```text
+curl http://127.0.0.1:8080
+podman compose logs --tail=100 dashboard
+```
+
+Enable **MagicDNS** in the Tailscale admin console under **DNS** if it is not already
+enabled. Then configure a persistent, tailnet-only HTTPS proxy on the Pi:
+
+```text
+sudo tailscale serve --bg http://127.0.0.1:8080
+tailscale serve status
+```
+
+The first command prints the HTTPS URL, normally similar to
+`https://raspberrypi.<tailnet>.ts.net`. Open that URL on the laptop while Tailscale is
+connected. The first Serve setup can print an admin-console link for enabling HTTPS;
+open it once and approve the feature.
+
+The default Tailscale policy allows devices in the same tailnet to connect, so no ACL
+change is required. If the tailnet uses a custom deny-by-default policy, grant the
+laptop user or device access to TCP port `443` on the Raspberry Pi. Do not enable
+Tailscale Funnel, because Funnel would expose the dashboard publicly.
+
+Inspect or disable the proxy with:
+
+```text
+tailscale serve status
+sudo tailscale serve --https=443 off
+```
 
 ## Windows bridge
 
