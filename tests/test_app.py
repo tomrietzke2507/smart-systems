@@ -247,7 +247,7 @@ class ArduinoIntegrationTests(unittest.TestCase):
         self.assertIn('"c 166:* rmw"', compose)
         self.assertIn('"c 188:* rmw"', compose)
         self.assertNotIn('"/dev/arduino_sensor_luis:/dev/arduino_sensor_luis"', compose)
-        self.assertNotIn("keep-groups", compose)
+        self.assertIn("keep-groups", compose)
 
     def test_humidity_sketch_uses_requested_hardware(self):
         sketch = (

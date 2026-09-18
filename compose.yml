@@ -19,6 +19,8 @@ services:
     device_cgroup_rules:
       - "c 166:* rmw"
       - "c 188:* rmw"
+    group_add:
+      - keep-groups
     environment:
       - DB_HOST=db
       - DB_PORT=5432
