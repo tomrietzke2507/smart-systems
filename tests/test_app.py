@@ -40,6 +40,28 @@ class TemperatureSensorTests(unittest.TestCase):
                 "arduino_sensor_luis",
             ],
         )
+        self.assertEqual(config.SENSORS[2]["temperature_offset"], -1.0)
+        self.assertEqual(config.DATABASE_WRITE_INTERVAL, 10.0)
+
+    def test_applies_configured_temperature_offset(self):
+        sensor = {
+            "id": "arduino_sensor_luis",
+            "port": "/dev/arduino_sensor_luis",
+            "temperature_offset": -1.0,
+        }
+        manager = sensor_io.SensorManager(
+            serial_factory=lambda _port, _baud_rate, timeout: ReadingSerial(
+                b"Aktuelle Temperatur: 24.0\n"
+            ),
+            clock=lambda: 0.0,
+            sensors=(sensor,),
+        )
+        manager.connect_available()
+
+        self.assertEqual(
+            list(manager.readings()),
+            [("arduino_sensor_luis", 23.0)],
+        )
 
     def test_formats_display_command_for_all_sensors(self):
         last_temperatures = {
@@ -144,7 +166,7 @@ class TemperatureSensorTests(unittest.TestCase):
             list(manager.readings()),
             [
                 ("arduino_sensor_andor", 22.0),
-                ("arduino_sensor_luis", 23.0),
+                ("arduino_sensor_luis", 22.0),
             ],
         )
         self.assertNotIn("arduino_sensor_marten", manager.connections)
@@ -172,16 +194,74 @@ class TemperatureSensorTests(unittest.TestCase):
         self.assertEqual(cursor.parameters, ("arduino_sensor_luis", 23.5))
         self.assertEqual(manager.retry_calls, 1)
 
+    def test_controller_displays_every_reading_and_stores_every_ten_seconds(self):
+        now = [0.0]
+        sleeps = []
+        actuator = RecordingSerial()
+        manager = RecordingSensorManager([("arduino_sensor_luis", 23.5)])
+        cursor = RecordingCursor()
+        connection = RecordingConnection()
+        service = controller.Controller(
+            actuator,
+            manager,
+            cursor,
+            connection,
+            clock=lambda: now[0],
+            sleep_func=sleeps.append,
+        )
+
+        service.run_once()
+        now[0] = 5.0
+        service.run_once()
+        now[0] = 10.0
+        service.run_once()
+
+        self.assertEqual(
+            actuator.writes,
+            [
+                b"D:--.-;--.-;23.5\n",
+                b"F:0\n",
+                b"S:0\n",
+                b"D:--.-;--.-;23.5\n",
+                b"D:--.-;--.-;23.5\n",
+            ],
+        )
+        self.assertEqual(len(cursor.executions), 2)
+        self.assertEqual(sleeps, [])
+
+    def test_controller_retries_database_write_after_failure(self):
+        now = [0.0]
+        cursor = RecordingCursor(error=RuntimeError("database unavailable"))
+        connection = RecordingConnection()
+        service = controller.Controller(
+            RecordingSerial(),
+            RecordingSensorManager([("arduino_sensor_luis", 23.5)]),
+            cursor,
+            connection,
+            clock=lambda: now[0],
+            sleep_func=lambda _seconds: None,
+        )
+
+        service.run_once()
+        cursor.error = None
+        now[0] = 1.0
+        service.run_once()
+
+        self.assertEqual(connection.rollbacks, 1)
+        self.assertEqual(connection.commits, 1)
+
 
 class RecordingCursor:
     def __init__(self, error=None):
         self.error = error
         self.parameters = None
+        self.executions = []
 
     def execute(self, _query, parameters):
         if self.error:
             raise self.error
         self.parameters = parameters
+        self.executions.append(parameters)
 
 
 class RecordingConnection:

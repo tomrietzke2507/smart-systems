@@ -39,6 +39,11 @@ Each reading is written to the `temperatures` table with the matching `sensor_id
 The Luis sensor additionally reports `Aktuelle Luftfeuchtigkeit: <value>`.
 The actuator Arduino receives all latest temperatures as `D:<marten>;<andor>;<luis>`, for example `D:21.7;22.4;23.9`. On the 16x2 LCD, Marten is shown in the first row on the left, Andor on the right, and Luis in the second row on the right. The fan status remains in the second row on the left.
 
+Luis has a configured temperature correction of `-1.0 °C`. Every incoming
+temperature updates the LCD immediately; the DHT11 supplies a new measurement about
+every two seconds. Database writes are limited independently to one value per sensor
+every ten seconds.
+
 The controller starts with any number of connected sensors. Missing sensors are
 shown as `--.-` and retried every five seconds. A sensor that is connected later
 is detected without restarting the container. The actuator remains required; if

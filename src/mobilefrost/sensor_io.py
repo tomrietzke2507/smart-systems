@@ -68,7 +68,8 @@ class SensorManager:
 
             temperature = parse_temperature(line)
             if temperature is not None:
-                yield sensor_id, temperature
+                offset = sensor.get("temperature_offset", 0.0)
+                yield sensor_id, temperature + offset
 
     def _disconnect(self, sensor_id, connection, error):
         try:

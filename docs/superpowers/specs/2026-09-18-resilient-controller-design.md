@@ -30,6 +30,18 @@ remain `--.-` on the LCD; available values are stored under their existing senso
 Database failures roll back the affected transaction and do not block LCD or actuator
 updates.
 
+## Measurement Timing And Calibration
+
+Each sensor profile may define a temperature offset. Luis uses `-1.0` degrees Celsius
+to compensate for the observed DHT11 deviation; display, cooling, and stored values all
+use the corrected temperature. The controller sends every incoming temperature to the
+LCD immediately and does not add artificial delays. The DHT11 remains limited by its
+reliable two-second Arduino measurement period.
+
+Database writes are throttled independently per sensor to at most one value every ten
+seconds. A failed write is retried on the next reading. Fan and servo commands are sent
+only when the cooling state changes, avoiding serial delays and duplicate commands.
+
 ## Docker And Tests
 
 `pyproject.toml` defines the installable package and runtime dependencies. The Docker
