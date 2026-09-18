@@ -16,9 +16,6 @@ services:
       - db
     volumes:
       - "/dev:/dev"
-    device_cgroup_rules:
-      - "c 166:* rmw"
-      - "c 188:* rmw"
     group_add:
       - keep-groups
     environment:

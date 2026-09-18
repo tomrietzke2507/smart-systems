@@ -244,8 +244,7 @@ class ArduinoIntegrationTests(unittest.TestCase):
         compose = (PROJECT_ROOT / "compose.yml").read_text(encoding="utf-8")
 
         self.assertIn('"/dev:/dev"', compose)
-        self.assertIn('"c 166:* rmw"', compose)
-        self.assertIn('"c 188:* rmw"', compose)
+        self.assertNotIn("device_cgroup_rules", compose)
         self.assertNotIn('"/dev/arduino_sensor_luis:/dev/arduino_sensor_luis"', compose)
         self.assertIn("keep-groups", compose)
 

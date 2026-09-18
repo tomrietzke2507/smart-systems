@@ -56,8 +56,8 @@ docker compose up --build
 ```
 
 The Compose configuration mounts Linux `/dev` so hot-plugged serial devices become
-visible inside the running container. Its device rules allow the usual `ttyACM`
-(major 166) and `ttyUSB` (major 188) devices.
+visible inside the running container. `group_add: keep-groups` preserves the host
+user's supplementary groups for serial access with rootless Podman.
 
 ## Windows bridge
 
