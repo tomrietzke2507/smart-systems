@@ -5,6 +5,7 @@ from psycopg2 import OperationalError
 SENSORS = [
     {"id": "arduino_sensor_marten", "port": "/dev/arduino_sensor_marten"},
     {"id": "arduino_sensor_andor", "port": "/dev/arduino_sensor_andor"},
+    {"id": "arduino_sensor_luis", "port": "/dev/arduino_sensor_luis"},
 ]
 PORT_AKTOR  = '/dev/arduino_aktor'  
 BAUD_RATE = 9600
@@ -24,7 +25,7 @@ def format_display_command(last_temperatures):
         format_display_value(last_temperatures.get(sensor["id"]))
         for sensor in SENSORS
     ]
-    return f"D:{values[0]};{values[1]}\n"
+    return f"D:{';'.join(values)}\n"
 
 def connect_db():
     while True:
@@ -89,7 +90,7 @@ def main():
                 cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", (sensor_id, temp_val))
                 conn.commit()
 
-                # 2. Display aktualisieren: erster Sensor links, zweiter Sensor rechts
+                # 2. Display mit den letzten Werten aller Sensoren aktualisieren
                 max_temp = max(last_temperatures.values())
                 display_cmd = format_display_command(last_temperatures)
                 print(f"LCD-Kommando: {display_cmd.strip()}")

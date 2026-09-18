@@ -17,9 +17,8 @@ services:
     devices:
       - "/dev/arduino_sensor_marten:/dev/arduino_sensor_marten"
       - "/dev/arduino_sensor_andor:/dev/arduino_sensor_andor"
+      - "/dev/arduino_sensor_luis:/dev/arduino_sensor_luis"
       - "/dev/arduino_aktor:/dev/arduino_aktor"
-    group_add:
-      - keep-groups                 # Zwingend notwendig für Podman & USB-Rechte
     environment:
       - DB_HOST=db
       - DB_PORT=5432

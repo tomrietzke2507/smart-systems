@@ -29,12 +29,14 @@ void loop() {
     String command = Serial.readStringUntil('\n');
     command.trim(); 
 
-    // BEFEHL 1: Temperaturen (z.B. "D:21.7;22.4")
+    // BEFEHL 1: Temperaturen (z.B. "D:21.7;22.4;23.9")
     if (command.startsWith("D:")) {
       int separatorIndex = command.indexOf(';');
-      if (separatorIndex > 2) {
+      int secondSeparatorIndex = command.indexOf(';', separatorIndex + 1);
+      if (separatorIndex > 2 && secondSeparatorIndex > separatorIndex) {
         String tempLeft = command.substring(2, separatorIndex);
-        String tempRight = command.substring(separatorIndex + 1);
+        String tempRight = command.substring(separatorIndex + 1, secondSeparatorIndex);
+        String tempLuis = command.substring(secondSeparatorIndex + 1);
 
         lcd.setCursor(0, 0);
         lcd.print("        ");
@@ -45,6 +47,11 @@ void loop() {
         lcd.print("        ");
         lcd.setCursor(8, 0);
         lcd.print(tempRight.substring(0, 4) + "C");
+
+        lcd.setCursor(8, 1);
+        lcd.print("        ");
+        lcd.setCursor(8, 1);
+        lcd.print(tempLuis.substring(0, 4) + "C");
       }
     }
     else if (command.startsWith("T:")) {
