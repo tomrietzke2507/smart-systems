@@ -1,0 +1,1 @@
+"""Mobilefrost sensor controller."""

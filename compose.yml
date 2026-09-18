@@ -14,11 +14,11 @@ services:
     restart: unless-stopped
     depends_on:
       - db
-    devices:
-      - "/dev/arduino_sensor_marten:/dev/arduino_sensor_marten"
-      - "/dev/arduino_sensor_andor:/dev/arduino_sensor_andor"
-      - "/dev/arduino_sensor_luis:/dev/arduino_sensor_luis"
-      - "/dev/arduino_aktor:/dev/arduino_aktor"
+    volumes:
+      - "/dev:/dev"
+    device_cgroup_rules:
+      - "c 166:* rmw"
+      - "c 188:* rmw"
     environment:
       - DB_HOST=db
       - DB_PORT=5432

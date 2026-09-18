@@ -4,10 +4,11 @@ FROM python:3.9-slim
 RUN apt-get update && apt-get install -y gcc python3-dev libpq-dev && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-COPY app.py .
+COPY pyproject.toml ./
+COPY src ./src
 
-# Installiere pyserial für USB und psycopg2 für die Datenbank
-RUN pip install pyserial psycopg2-binary
+# Installiere die Anwendung und ihre Abhängigkeiten
+RUN pip install --no-cache-dir .
 
-# Deaktiviere den Python-Puffer (-u), damit Logs sofort in Podman sichtbar sind
-CMD ["python", "-u", "app.py"]
+# Deaktiviere den Python-Puffer (-u), damit Logs sofort sichtbar sind
+CMD ["python", "-u", "-m", "mobilefrost"]
