@@ -45,12 +45,12 @@ void loop() {
 
         lcd.setCursor(8, 0);
         lcd.print("        ");
-        lcd.setCursor(8, 0);
+        lcd.setCursor(11, 0);
         lcd.print(tempRight.substring(0, 4) + "C");
 
         lcd.setCursor(8, 1);
         lcd.print("        ");
-        lcd.setCursor(8, 1);
+        lcd.setCursor(11, 1);
         lcd.print(tempLuis.substring(0, 4) + "C");
       }
     }

@@ -266,7 +266,8 @@ class ArduinoIntegrationTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn("String tempLuis", sketch)
-        self.assertIn("lcd.setCursor(8, 1);", sketch)
+        self.assertIn("lcd.setCursor(11, 0);", sketch)
+        self.assertIn("lcd.setCursor(11, 1);", sketch)
 
 
 if __name__ == "__main__":
