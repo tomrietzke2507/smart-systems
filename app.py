@@ -12,7 +12,10 @@ BAUD_RATE = 9600
 
 def parse_temperature(line):
     if line and "Aktuelle Temperatur:" in line:
-        return float(line.split(":")[1].strip())
+        try:
+            return float(line.split(":", 1)[1].strip())
+        except (ValueError, IndexError):
+            return None
     return None
 
 def format_display_value(temp_val):
@@ -26,6 +29,34 @@ def format_display_command(last_temperatures):
         for sensor in SENSORS
     ]
     return f"D:{';'.join(values)}\n"
+
+def initialize_display(serial_connection):
+    serial_connection.write(format_display_command({}).encode("utf-8"))
+
+def open_sensor_connections(serial_factory=serial.Serial):
+    connections = []
+    for sensor in SENSORS:
+        try:
+            connections.append({
+                "id": sensor["id"],
+                "serial": serial_factory(sensor["port"], BAUD_RATE, timeout=2),
+            })
+        except Exception as error:
+            print(f"Sensor nicht erreichbar ({sensor['id']}): {error}")
+    return connections
+
+def store_temperature(cursor, connection, sensor_id, temperature):
+    try:
+        cursor.execute(
+            "INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)",
+            (sensor_id, temperature),
+        )
+        connection.commit()
+        return True
+    except Exception as error:
+        connection.rollback()
+        print(f"Datenbankfehler ({sensor_id}): {error}")
+        return False
 
 def connect_db():
     while True:
@@ -53,29 +84,31 @@ def init_db(conn):
 
 def main():
     print("Starte Mobilefrost Zentrale (Sensor & Aktor)...")
-    conn = connect_db()
-    init_db(conn) # Ruft den Fix 1 auf
-    cursor = conn.cursor()
-    
+
     try:
-        sensor_connections = [
-            {
-                "id": sensor["id"],
-                "serial": serial.Serial(sensor["port"], BAUD_RATE, timeout=2),
-            }
-            for sensor in SENSORS
-        ]
         ser_aktor = serial.Serial(PORT_AKTOR, BAUD_RATE, timeout=2)
         time.sleep(2)
-        print("✅ Sensoren und Aktor verbunden!")
+        initialize_display(ser_aktor)
+        print("✅ Aktor verbunden!")
     except Exception as e:
-        print(f"❌ USB-Fehler: {e}")
+        print(f"❌ Aktor nicht erreichbar: {e}")
         exit(1)
 
+    sensor_connections = open_sensor_connections()
+    if not sensor_connections:
+        print("❌ Keine Sensoren erreichbar.")
+
+    conn = connect_db()
+    init_db(conn)
+    cursor = conn.cursor()
     last_temperatures = {}
 
     while True:
         try:
+            if not sensor_connections:
+                time.sleep(1)
+                continue
+
             for sensor in sensor_connections:
                 line = sensor["serial"].readline().decode('utf-8', errors='ignore').strip()
                 temp_val = parse_temperature(line)
@@ -85,12 +118,8 @@ def main():
                 sensor_id = sensor["id"]
                 last_temperatures[sensor_id] = temp_val
                 print(f"Gemessen ({sensor_id}): {temp_val}°C")
-                
-                # 1. Daten in Datenbank speichern
-                cursor.execute("INSERT INTO temperatures (sensor_id, value) VALUES (%s, %s)", (sensor_id, temp_val))
-                conn.commit()
 
-                # 2. Display mit den letzten Werten aller Sensoren aktualisieren
+                # 1. Display und Aktoren unabhängig von der Datenbank aktualisieren
                 max_temp = max(last_temperatures.values())
                 display_cmd = format_display_command(last_temperatures)
                 print(f"LCD-Kommando: {display_cmd.strip()}")
@@ -108,11 +137,12 @@ def main():
                     ser_aktor.write("F:0\n".encode('utf-8'))
                     time.sleep(0.5)
                     ser_aktor.write("S:0\n".encode('utf-8'))
+
+                # 2. Messwert mit eigener Transaktionsbehandlung speichern
+                store_temperature(cursor, conn, sensor_id, temp_val)
                     
         except Exception as e:
             print(f"Fehler: {e}")
-            # FIX 2: Wenn die Datenbank meckert, die blockierte Transaktion zurücksetzen!
-            conn.rollback() 
             time.sleep(1)
 
 if __name__ == '__main__':

@@ -20,6 +20,7 @@ class TemperatureSensorTests(unittest.TestCase):
     def test_parses_temperature_line(self):
         self.assertEqual(app.parse_temperature("Aktuelle Temperatur: 21.75"), 21.75)
         self.assertIsNone(app.parse_temperature("Bereit"))
+        self.assertIsNone(app.parse_temperature("Aktuelle Temperatur: nan?"))
 
     def test_configures_all_named_sensors(self):
         sensor_ids = [sensor["id"] for sensor in app.SENSORS]
@@ -43,6 +44,88 @@ class TemperatureSensorTests(unittest.TestCase):
         command = app.format_display_command(last_temperatures)
 
         self.assertEqual(command, "D:21.7;22.4;23.9\n")
+
+    def test_stores_temperature_and_commits(self):
+        cursor = RecordingCursor()
+        connection = RecordingConnection()
+
+        self.assertTrue(
+            app.store_temperature(
+                cursor, connection, "arduino_sensor_luis", 23.5
+            )
+        )
+        self.assertEqual(
+            cursor.parameters, ("arduino_sensor_luis", 23.5)
+        )
+        self.assertEqual(connection.commits, 1)
+        self.assertEqual(connection.rollbacks, 0)
+
+    def test_database_error_rolls_back_without_raising(self):
+        cursor = RecordingCursor(error=RuntimeError("database unavailable"))
+        connection = RecordingConnection()
+
+        self.assertFalse(
+            app.store_temperature(
+                cursor, connection, "arduino_sensor_luis", 23.5
+            )
+        )
+        self.assertEqual(connection.commits, 0)
+        self.assertEqual(connection.rollbacks, 1)
+
+    def test_initial_display_command_contains_placeholders(self):
+        self.assertEqual(app.format_display_command({}), "D:--.-;--.-;--.-\n")
+
+    def test_initializes_display_after_serial_connection(self):
+        serial_connection = RecordingSerial()
+
+        app.initialize_display(serial_connection)
+
+        self.assertEqual(serial_connection.writes, [b"D:--.-;--.-;--.-\n"])
+
+    def test_connects_available_sensors_when_one_is_unavailable(self):
+        def serial_factory(port, _baud_rate, timeout):
+            self.assertEqual(timeout, 2)
+            if port.endswith("luis"):
+                raise OSError("device missing")
+            return RecordingSerial()
+
+        connections = app.open_sensor_connections(serial_factory)
+
+        self.assertEqual(
+            [sensor["id"] for sensor in connections],
+            ["arduino_sensor_marten", "arduino_sensor_andor"],
+        )
+
+
+class RecordingCursor:
+    def __init__(self, error=None):
+        self.error = error
+        self.parameters = None
+
+    def execute(self, _query, parameters):
+        if self.error:
+            raise self.error
+        self.parameters = parameters
+
+
+class RecordingConnection:
+    def __init__(self):
+        self.commits = 0
+        self.rollbacks = 0
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+
+class RecordingSerial:
+    def __init__(self):
+        self.writes = []
+
+    def write(self, value):
+        self.writes.append(value)
 
 
 class ArduinoIntegrationTests(unittest.TestCase):
