@@ -1,3 +1,5 @@
+from datetime import timezone
+
 from flask import Flask, jsonify, render_template, request
 
 from .database import connect_db_once, fetch_dashboard_data
@@ -45,19 +47,25 @@ def create_app(data_loader=load_dashboard_data):
 def _serialize_data(data, hours):
     series = {
         sensor_id: [
-            {"timestamp": timestamp.isoformat(), "value": float(value)}
+            {"timestamp": _serialize_timestamp(timestamp), "value": float(value)}
             for timestamp, value in points
         ]
         for sensor_id, points in data["series"].items()
     }
     latest = {
         sensor_id: {
-            "timestamp": timestamp.isoformat(),
+            "timestamp": _serialize_timestamp(timestamp),
             "value": float(value),
         }
         for sensor_id, (timestamp, value) in data["latest"].items()
     }
     return {"hours": hours, "series": series, "latest": latest}
+
+
+def _serialize_timestamp(timestamp):
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=timezone.utc)
+    return timestamp.isoformat()
 
 
 def main():

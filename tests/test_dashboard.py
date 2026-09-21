@@ -85,6 +85,30 @@ class DashboardTests(unittest.TestCase):
         )
         self.assertEqual(payload["latest"]["arduino_sensor_luis"]["value"], 22.5)
 
+    def test_api_marks_naive_database_timestamps_as_utc(self):
+        timestamp = datetime(2026, 9, 21, 8, 56)
+        client = self.create_client(
+            lambda _hours: {
+                "series": {
+                    "arduino_sensor_marten": [(timestamp, 24.6)],
+                },
+                "latest": {
+                    "arduino_sensor_marten": (timestamp, 24.6),
+                },
+            }
+        )
+
+        payload = client.get("/api/temperatures?hours=1").get_json()
+
+        self.assertEqual(
+            payload["series"]["arduino_sensor_marten"][0]["timestamp"],
+            "2026-09-21T08:56:00+00:00",
+        )
+        self.assertEqual(
+            payload["latest"]["arduino_sensor_marten"]["timestamp"],
+            "2026-09-21T08:56:00+00:00",
+        )
+
     def test_api_returns_503_when_database_is_unavailable(self):
         def unavailable(_hours):
             raise RuntimeError("secret database details")
