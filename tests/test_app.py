@@ -390,6 +390,7 @@ class RecordingMqttClient:
         self.connected = None
         self.subscriptions = []
         self.loop_started = False
+        self.on_connect = None
         self.on_message = None
 
     def publish(self, topic, payload, retain=False):
@@ -433,6 +434,10 @@ class MqttIoTests(unittest.TestCase):
     def test_parses_valid_actuator_commands(self):
         self.assertEqual(
             mqtt_io.parse_actuator_command(mqtt_io.FAN_SET_TOPIC, b"128"),
+            ("fan", 128),
+        )
+        self.assertEqual(
+            mqtt_io.parse_actuator_command(mqtt_io.FAN_SET_TOPIC, b'"128"'),
             ("fan", 128),
         )
         self.assertEqual(
@@ -495,6 +500,9 @@ class MqttIoTests(unittest.TestCase):
         adapter = mqtt_io.MqttAdapter(client=client, host="broker", port=1883)
 
         adapter.start(lambda kind, value: commands.append((kind, value)))
+        self.assertEqual(client.subscriptions, [])
+
+        client.on_connect(client, None, None, None, None)
         client.on_message(
             None,
             None,

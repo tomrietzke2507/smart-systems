@@ -32,10 +32,15 @@ def parse_actuator_command(topic, payload):
     if isinstance(payload, bytes):
         payload = payload.decode("utf-8", errors="replace")
 
+    payload = str(payload).strip()
     try:
-        value = int(str(payload).strip())
+        value = int(payload)
     except ValueError:
-        return None
+        try:
+            decoded_payload = json.loads(payload)
+            value = int(decoded_payload)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
 
     if topic == FAN_SET_TOPIC and 0 <= value <= 255:
         return ("fan", value)
@@ -61,11 +66,14 @@ class MqttAdapter:
                 return
             on_command(*command)
 
+        def handle_connect(client, _userdata, _flags, _reason_code, _properties):
+            client.subscribe(FAN_SET_TOPIC)
+            client.subscribe(FLAP_SET_TOPIC)
+
+        self.client.on_connect = handle_connect
         self.client.on_message = handle_message
         try:
             self.client.connect_async(self.host, self.port)
-            self.client.subscribe(FAN_SET_TOPIC)
-            self.client.subscribe(FLAP_SET_TOPIC)
             self.client.loop_start()
         except Exception as error:
             print(f"MQTT nicht erreichbar: {error}")
