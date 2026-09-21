@@ -50,10 +50,13 @@ function updateLatest(latest) {
 function makeDatasets(series) {
   return sensors.map((sensor) => ({
     label: sensor.label,
-    data: (series[sensor.id] || []).map((point) => ({
-      x: formatTime(point.timestamp),
-      y: point.value,
-    })),
+    data: (series[sensor.id] || [])
+      .map((point) => ({
+        x: Date.parse(point.timestamp),
+        y: point.value,
+      }))
+      .filter((point) => Number.isFinite(point.x))
+      .sort((left, right) => left.x - right.x),
     borderColor: sensor.color,
     backgroundColor: sensor.color,
     borderWidth: 2,
@@ -95,15 +98,20 @@ function updateChart(series) {
         },
         tooltip: {
           callbacks: {
+            title: (items) => formatTime(items[0].parsed.x),
             label: (context) => `${context.dataset.label}: ${context.parsed.y.toFixed(1)} °C`,
           },
         },
       },
       scales: {
         x: {
-          type: "category",
+          type: "linear",
           grid: { display: false },
-          ticks: { maxTicksLimit: 8, maxRotation: 0 },
+          ticks: {
+            callback: (value) => formatTime(value),
+            maxTicksLimit: 8,
+            maxRotation: 0,
+          },
         },
         y: {
           grid: { color: "rgba(29, 39, 41, 0.08)" },

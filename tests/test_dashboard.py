@@ -21,6 +21,15 @@ class DashboardTests(unittest.TestCase):
         self.assertIn(b'data-hours="24"', response.data)
         self.assertIn(b"temperature-chart", response.data)
 
+    def test_dashboard_chart_uses_numeric_time_axis(self):
+        script = (
+            PROJECT_ROOT / "src" / "mobilefrost" / "static" / "dashboard.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("x: Date.parse(point.timestamp)", script)
+        self.assertIn('type: "linear"', script)
+        self.assertNotIn("x: formatTime(point.timestamp)", script)
+
     def test_api_uses_default_24_hour_range(self):
         requested_hours = []
         client = self.create_client(
