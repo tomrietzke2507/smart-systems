@@ -1,4 +1,5 @@
 import importlib
+from datetime import datetime, timezone
 from pathlib import Path
 import sys
 import types
@@ -20,6 +21,7 @@ config = importlib.import_module("mobilefrost.config")
 controller = importlib.import_module("mobilefrost.controller")
 database = importlib.import_module("mobilefrost.database")
 display = importlib.import_module("mobilefrost.display")
+mqtt_io = importlib.import_module("mobilefrost.mqtt_io")
 sensor_io = importlib.import_module("mobilefrost.sensor_io")
 
 
@@ -42,6 +44,10 @@ class TemperatureSensorTests(unittest.TestCase):
         )
         self.assertEqual(config.SENSORS[2]["temperature_offset"], -1.0)
         self.assertEqual(config.DATABASE_WRITE_INTERVAL, 10.0)
+
+    def test_config_declares_mqtt_defaults(self):
+        self.assertEqual(config.MQTT_HOST, "mosquitto")
+        self.assertEqual(config.MQTT_PORT, 1883)
 
     def test_applies_configured_temperature_offset(self):
         sensor = {
@@ -250,6 +256,57 @@ class TemperatureSensorTests(unittest.TestCase):
         self.assertEqual(connection.rollbacks, 1)
         self.assertEqual(connection.commits, 1)
 
+    def test_controller_publishes_temperature_reading_to_mqtt(self):
+        timestamp = datetime(2026, 9, 21, 12, 34, 56, tzinfo=timezone.utc)
+        mqtt_adapter = RecordingMqttAdapter()
+        service = controller.Controller(
+            RecordingSerial(),
+            RecordingSensorManager([("arduino_sensor_luis", 23.5)]),
+            RecordingCursor(),
+            RecordingConnection(),
+            clock=lambda: 42.0,
+            wall_clock=lambda: timestamp,
+            mqtt_adapter=mqtt_adapter,
+            sleep_func=lambda _seconds: None,
+        )
+
+        service.run_once()
+
+        self.assertEqual(
+            mqtt_adapter.temperatures,
+            [("arduino_sensor_luis", 23.5, timestamp)],
+        )
+
+    def test_controller_publishes_cooling_state_changes_to_mqtt(self):
+        mqtt_adapter = RecordingMqttAdapter()
+        service = controller.Controller(
+            RecordingSerial(),
+            RecordingSensorManager([("arduino_sensor_luis", 27.0)]),
+            RecordingCursor(),
+            RecordingConnection(),
+            mqtt_adapter=mqtt_adapter,
+            sleep_func=lambda _seconds: None,
+        )
+
+        service.run_once()
+
+        self.assertEqual(mqtt_adapter.cooling_states, [(True, "automatic")])
+
+    def test_controller_handles_mqtt_actuator_commands(self):
+        actuator = RecordingSerial()
+        service = controller.Controller(
+            actuator,
+            RecordingSensorManager([]),
+            RecordingCursor(),
+            RecordingConnection(),
+            sleep_func=lambda _seconds: None,
+        )
+
+        service.handle_actuator_command("fan", 128)
+        service.handle_actuator_command("flap", 45)
+
+        self.assertEqual(actuator.writes, [b"F:128\n", b"S:45\n"])
+
 
 class RecordingCursor:
     def __init__(self, error=None):
@@ -311,6 +368,148 @@ class RecordingSensorManager:
         return iter(self._readings)
 
 
+class RecordingMqttAdapter:
+    def __init__(self):
+        self.started_with = None
+        self.temperatures = []
+        self.cooling_states = []
+
+    def start(self, on_command):
+        self.started_with = on_command
+
+    def publish_temperature(self, sensor_id, value, timestamp):
+        self.temperatures.append((sensor_id, value, timestamp))
+
+    def publish_cooling_state(self, enabled, source="automatic"):
+        self.cooling_states.append((enabled, source))
+
+
+class RecordingMqttClient:
+    def __init__(self):
+        self.published = []
+        self.connected = None
+        self.subscriptions = []
+        self.loop_started = False
+        self.on_message = None
+
+    def publish(self, topic, payload, retain=False):
+        self.published.append((topic, payload, retain))
+
+    def connect_async(self, host, port):
+        self.connected = (host, port)
+
+    def subscribe(self, topic):
+        self.subscriptions.append(topic)
+
+    def loop_start(self):
+        self.loop_started = True
+
+
+class FailingMqttClient:
+    def publish(self, _topic, _payload, retain=False):
+        raise RuntimeError("broker unavailable")
+
+
+class MqttIoTests(unittest.TestCase):
+    def test_formats_temperature_payload_as_json(self):
+        timestamp = datetime(2026, 9, 21, 12, 34, 56, tzinfo=timezone.utc)
+
+        payload = mqtt_io.format_temperature_payload(
+            "arduino_sensor_marten",
+            22.5,
+            timestamp,
+        )
+
+        self.assertEqual(
+            payload,
+            '{"sensor_id":"arduino_sensor_marten","value":22.5,"timestamp":"2026-09-21T12:34:56+00:00"}',
+        )
+
+    def test_formats_cooling_payload_as_json(self):
+        payload = mqtt_io.format_cooling_payload(True)
+
+        self.assertEqual(payload, '{"enabled":true,"source":"automatic"}')
+
+    def test_parses_valid_actuator_commands(self):
+        self.assertEqual(
+            mqtt_io.parse_actuator_command(mqtt_io.FAN_SET_TOPIC, b"128"),
+            ("fan", 128),
+        )
+        self.assertEqual(
+            mqtt_io.parse_actuator_command(mqtt_io.FLAP_SET_TOPIC, "90"),
+            ("flap", 90),
+        )
+
+    def test_ignores_invalid_actuator_commands(self):
+        invalid_commands = [
+            (mqtt_io.FAN_SET_TOPIC, b"256"),
+            (mqtt_io.FAN_SET_TOPIC, b"-1"),
+            (mqtt_io.FLAP_SET_TOPIC, b"91"),
+            (mqtt_io.FLAP_SET_TOPIC, b"open"),
+            ("mobilefrost/actuators/unknown/set", b"1"),
+        ]
+
+        for topic, payload in invalid_commands:
+            with self.subTest(topic=topic, payload=payload):
+                self.assertIsNone(mqtt_io.parse_actuator_command(topic, payload))
+
+    def test_adapter_publishes_temperature_to_sensor_topic(self):
+        client = RecordingMqttClient()
+        adapter = mqtt_io.MqttAdapter(client=client)
+        timestamp = datetime(2026, 9, 21, 12, 34, 56, tzinfo=timezone.utc)
+
+        adapter.publish_temperature("arduino_sensor_marten", 22.5, timestamp)
+
+        self.assertEqual(
+            client.published,
+            [
+                (
+                    "mobilefrost/temperatures/arduino_sensor_marten",
+                    '{"sensor_id":"arduino_sensor_marten","value":22.5,"timestamp":"2026-09-21T12:34:56+00:00"}',
+                    True,
+                )
+            ],
+        )
+
+    def test_adapter_publishes_cooling_state(self):
+        client = RecordingMqttClient()
+        adapter = mqtt_io.MqttAdapter(client=client)
+
+        adapter.publish_cooling_state(False)
+
+        self.assertEqual(
+            client.published,
+            [("mobilefrost/status/cooling", '{"enabled":false,"source":"automatic"}', True)],
+        )
+
+    def test_adapter_ignores_publish_errors(self):
+        adapter = mqtt_io.MqttAdapter(client=FailingMqttClient())
+        timestamp = datetime(2026, 9, 21, 12, 34, 56, tzinfo=timezone.utc)
+
+        adapter.publish_temperature("arduino_sensor_marten", 22.5, timestamp)
+        adapter.publish_cooling_state(True)
+
+    def test_adapter_starts_subscription_for_actuator_commands(self):
+        commands = []
+        client = RecordingMqttClient()
+        adapter = mqtt_io.MqttAdapter(client=client, host="broker", port=1883)
+
+        adapter.start(lambda kind, value: commands.append((kind, value)))
+        client.on_message(
+            None,
+            None,
+            types.SimpleNamespace(topic=mqtt_io.FAN_SET_TOPIC, payload=b"128"),
+        )
+
+        self.assertEqual(client.connected, ("broker", 1883))
+        self.assertEqual(
+            client.subscriptions,
+            [mqtt_io.FAN_SET_TOPIC, mqtt_io.FLAP_SET_TOPIC],
+        )
+        self.assertTrue(client.loop_started)
+        self.assertEqual(commands, [("fan", 128)])
+
+
 class ArduinoIntegrationTests(unittest.TestCase):
     def test_dockerfile_installs_and_runs_package(self):
         dockerfile = (PROJECT_ROOT / "Dockerfile").read_text(encoding="utf-8")
@@ -334,6 +533,33 @@ class ArduinoIntegrationTests(unittest.TestCase):
         self.assertIn("dashboard:", compose)
         self.assertIn('"127.0.0.1:8080:8080"', compose)
         self.assertIn("mobilefrost.dashboard:create_app()", compose)
+
+    def test_compose_adds_mqtt_and_nodered_services(self):
+        compose = (PROJECT_ROOT / "compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn("mosquitto:", compose)
+        self.assertIn("image: eclipse-mosquitto:2", compose)
+        self.assertIn('"1883:1883"', compose)
+        self.assertIn("nodered:", compose)
+        self.assertIn("image: nodered/node-red:latest", compose)
+        self.assertIn('"127.0.0.1:1880:1880"', compose)
+
+    def test_controller_receives_mqtt_environment(self):
+        compose = (PROJECT_ROOT / "compose.yml").read_text(encoding="utf-8")
+
+        self.assertIn("- MQTT_HOST=mosquitto", compose)
+        self.assertIn("- MQTT_PORT=1883", compose)
+
+    def test_pyproject_declares_mqtt_dependency(self):
+        pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+        self.assertIn('"paho-mqtt>=2.0,<3",', pyproject)
+
+    def test_main_passes_mqtt_adapter_to_controller(self):
+        main_file = (PROJECT_ROOT / "src" / "mobilefrost" / "__main__.py").read_text(encoding="utf-8")
+
+        self.assertIn("from .mqtt_io import build_mqtt_adapter", main_file)
+        self.assertIn("mqtt_adapter=build_mqtt_adapter()", main_file)
 
     def test_humidity_sketch_uses_requested_hardware(self):
         sketch = (

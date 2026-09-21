@@ -9,11 +9,19 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
 
+  mosquitto:
+    image: eclipse-mosquitto:2
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    command: mosquitto -c /mosquitto-no-auth.conf
+
   controller:
     build: .
     restart: unless-stopped
     depends_on:
       - db
+      - mosquitto
     volumes:
       - "/dev:/dev"
     group_add:
@@ -24,6 +32,8 @@ services:
       - DB_USER=mobilefrost_user
       - DB_PASSWORD=secretpassword
       - DB_NAME=mobilefrost_db
+      - MQTT_HOST=mosquitto
+      - MQTT_PORT=1883
 
   dashboard:
     build: .
@@ -48,5 +58,16 @@ services:
       - DB_PASSWORD=secretpassword
       - DB_NAME=mobilefrost_db
 
+  nodered:
+    image: nodered/node-red:latest
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    ports:
+      - "127.0.0.1:1880:1880"
+    volumes:
+      - nodered_data:/data
+
 volumes:
   pgdata:
+  nodered_data:

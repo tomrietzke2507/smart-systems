@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 import time
 
 from .config import DATABASE_WRITE_INTERVAL
@@ -13,6 +14,8 @@ class Controller:
         cursor,
         database_connection,
         clock=time.monotonic,
+        wall_clock=lambda: datetime.now(timezone.utc),
+        mqtt_adapter=None,
         database_write_interval=DATABASE_WRITE_INTERVAL,
         sleep_func=time.sleep,
     ):
@@ -21,11 +24,15 @@ class Controller:
         self.cursor = cursor
         self.database_connection = database_connection
         self.clock = clock
+        self.wall_clock = wall_clock
+        self.mqtt_adapter = mqtt_adapter
         self.database_write_interval = database_write_interval
         self.sleep = sleep_func
         self.last_temperatures = {}
         self.last_database_writes = {}
         self.cooling_enabled = None
+        if self.mqtt_adapter is not None:
+            self.mqtt_adapter.start(self.handle_actuator_command)
 
     def run_once(self):
         self.sensor_manager.retry_missing()
@@ -39,6 +46,13 @@ class Controller:
             command = format_display_command(self.last_temperatures)
             print(f"LCD-Kommando: {command.strip()}")
             self.actuator.write(command.encode("utf-8"))
+
+            if self.mqtt_adapter is not None:
+                self.mqtt_adapter.publish_temperature(
+                    sensor_id,
+                    temperature,
+                    self.wall_clock(),
+                )
 
             self._update_cooling()
             self._store_if_due(sensor_id, temperature)
@@ -61,6 +75,9 @@ class Controller:
             return
 
         self.cooling_enabled = cooling_enabled
+        if self.mqtt_adapter is not None:
+            self.mqtt_adapter.publish_cooling_state(cooling_enabled)
+
         if cooling_enabled:
             print("Zu warm! Lüfter AN & Klappe AUF.")
             self.actuator.write(b"F:255\n")
@@ -69,6 +86,12 @@ class Controller:
             print("Temperatur OK. Lüfter AUS & Klappe ZU.")
             self.actuator.write(b"F:0\n")
             self.actuator.write(b"S:0\n")
+
+    def handle_actuator_command(self, kind, value):
+        if kind == "fan":
+            self.actuator.write(f"F:{value}\n".encode("utf-8"))
+        elif kind == "flap":
+            self.actuator.write(f"S:{value}\n".encode("utf-8"))
 
     def _store_if_due(self, sensor_id, temperature):
         now = self.clock()

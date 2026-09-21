@@ -6,6 +6,7 @@ from .config import BAUD_RATE, PORT_ACTUATOR, SERIAL_TIMEOUT
 from .controller import Controller
 from .database import connect_db, init_db
 from .display import initialize_display
+from .mqtt_io import build_mqtt_adapter
 from .sensor_io import SensorManager
 
 def main():
@@ -35,6 +36,7 @@ def main():
         sensor_manager,
         cursor,
         database_connection,
+        mqtt_adapter=build_mqtt_adapter(),
     ).run()
     return 0
 

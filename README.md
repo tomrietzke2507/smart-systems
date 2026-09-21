@@ -102,6 +102,35 @@ tailscale serve status
 sudo tailscale serve --https=443 off
 ```
 
+## MQTT mobile control and Node-RED
+
+The Compose stack includes an Eclipse Mosquitto broker and Node-RED. The controller
+publishes retained temperature updates to MQTT and accepts simple actuator commands
+from mobile MQTT apps.
+
+Start the stack:
+
+```text
+podman compose up -d --build
+```
+
+MQTT topics for MQTT Dash or MQTT Explorer:
+
+- `mobilefrost/temperatures/arduino_sensor_marten`
+- `mobilefrost/temperatures/arduino_sensor_andor`
+- `mobilefrost/temperatures/arduino_sensor_luis`
+- `mobilefrost/status/cooling`
+- publish `0` to `255` to `mobilefrost/actuators/fan/set`
+- publish `0` to `90` to `mobilefrost/actuators/flap/set`
+
+The bundled broker listens on port `1883`. Expose it only on the trusted lab network
+or through Tailscale. Node-RED is published on Raspberry Pi loopback port `1880`; use
+Tailscale Serve or an SSH tunnel when editing flows remotely. In Node-RED, connect MQTT
+nodes to broker host `mosquitto` and port `1883`.
+
+Manual actuator commands are prototype controls. The automatic cooling rule remains
+active and can overwrite manual fan or flap values on the next temperature update.
+
 ## Windows bridge
 
 For local Windows testing, adjust the COM ports in `windows_serial_bridge.py`. The bridge writes both sensors to the same PostgreSQL table using the sensor IDs `arduino_sensor_marten` and `arduino_sensor_andor`.
