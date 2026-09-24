@@ -279,8 +279,9 @@ class TemperatureSensorTests(unittest.TestCase):
 
     def test_controller_publishes_cooling_state_changes_to_mqtt(self):
         mqtt_adapter = RecordingMqttAdapter()
+        actuator = RecordingSerial()
         service = controller.Controller(
-            RecordingSerial(),
+            actuator,
             RecordingSensorManager([("arduino_sensor_luis", 27.0)]),
             RecordingCursor(),
             RecordingConnection(),
@@ -291,6 +292,46 @@ class TemperatureSensorTests(unittest.TestCase):
         service.run_once()
 
         self.assertEqual(mqtt_adapter.cooling_states, [(True, "automatic")])
+        self.assertEqual(actuator.writes, [b"D:--.-;--.-;27.0\n", b"F:255\n", b"S:0\n"])
+
+    def test_controller_opens_flap_at_thirty_degrees(self):
+        actuator = RecordingSerial()
+        service = controller.Controller(
+            actuator,
+            RecordingSensorManager([("arduino_sensor_luis", 30.0)]),
+            RecordingCursor(),
+            RecordingConnection(),
+            sleep_func=lambda _seconds: None,
+        )
+
+        service.run_once()
+
+        self.assertEqual(actuator.writes, [b"D:--.-;--.-;30.0\n", b"F:255\n", b"S:90\n"])
+
+    def test_controller_opens_flap_when_temperature_rises_after_fan_started(self):
+        actuator = RecordingSerial()
+        service = controller.Controller(
+            actuator,
+            RecordingSensorManager([("arduino_sensor_luis", 27.0)]),
+            RecordingCursor(),
+            RecordingConnection(),
+            sleep_func=lambda _seconds: None,
+        )
+
+        service.run_once()
+        service.sensor_manager = RecordingSensorManager([("arduino_sensor_luis", 30.0)])
+        service.run_once()
+
+        self.assertEqual(
+            actuator.writes,
+            [
+                b"D:--.-;--.-;27.0\n",
+                b"F:255\n",
+                b"S:0\n",
+                b"D:--.-;--.-;30.0\n",
+                b"S:90\n",
+            ],
+        )
 
     def test_controller_handles_mqtt_actuator_commands(self):
         actuator = RecordingSerial()

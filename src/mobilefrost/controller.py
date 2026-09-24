@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 import time
 
-from .config import DATABASE_WRITE_INTERVAL
+from .config import DATABASE_WRITE_INTERVAL, FAN_ON_TEMPERATURE, FLAP_OPEN_TEMPERATURE
 from .database import store_temperature
 from .display import format_display_command
 
@@ -31,6 +31,7 @@ class Controller:
         self.last_temperatures = {}
         self.last_database_writes = {}
         self.cooling_enabled = None
+        self.flap_open = None
         if self.mqtt_adapter is not None:
             self.mqtt_adapter.start(self.handle_actuator_command)
 
@@ -70,22 +71,29 @@ class Controller:
                 self.sleep(1)
 
     def _update_cooling(self):
-        cooling_enabled = max(self.last_temperatures.values()) > 26.0
-        if cooling_enabled == self.cooling_enabled:
-            return
+        maximum_temperature = max(self.last_temperatures.values())
+        cooling_enabled = maximum_temperature > FAN_ON_TEMPERATURE
+        flap_open = maximum_temperature >= FLAP_OPEN_TEMPERATURE
 
-        self.cooling_enabled = cooling_enabled
-        if self.mqtt_adapter is not None:
-            self.mqtt_adapter.publish_cooling_state(cooling_enabled)
+        if cooling_enabled != self.cooling_enabled:
+            self.cooling_enabled = cooling_enabled
+            if self.mqtt_adapter is not None:
+                self.mqtt_adapter.publish_cooling_state(cooling_enabled)
 
-        if cooling_enabled:
-            print("Zu warm! Lüfter AN & Klappe AUF.")
-            self.actuator.write(b"F:255\n")
-            self.actuator.write(b"S:90\n")
-        else:
-            print("Temperatur OK. Lüfter AUS & Klappe ZU.")
-            self.actuator.write(b"F:0\n")
-            self.actuator.write(b"S:0\n")
+            if cooling_enabled:
+                print("Zu warm! Lüfter AN.")
+                self.actuator.write(b"F:255\n")
+            else:
+                print("Temperatur OK. Lüfter AUS.")
+                self.actuator.write(b"F:0\n")
+
+        if flap_open != self.flap_open:
+            self.flap_open = flap_open
+            if flap_open:
+                print("Temperatur mindestens 30 °C. Klappe AUF.")
+                self.actuator.write(b"S:90\n")
+            else:
+                self.actuator.write(b"S:0\n")
 
     def handle_actuator_command(self, kind, value):
         if kind == "fan":

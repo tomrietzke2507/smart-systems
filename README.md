@@ -1,136 +1,171 @@
-# smart-systems
+# MobileFrost Smart Systems
 
-Mobilefrost controller for the Smart Systems course.
+MobileFrost ist eine vernetzte Kühlbox-Anwendung für das Projekt Smart Systems.
+Mehrere Arduino-Boards liefern Messwerte an einen Raspberry Pi. Der Raspberry Pi
+speichert die Daten, steuert den Aktor-Arduino und stellt Messwerte zusätzlich über
+MQTT und ein Web-Dashboard bereit.
 
-## Project structure
+Eine detaillierte Gegenüberstellung mit dem Bewertungsbogen steht in
+[`docs/anforderungen-bewertungsbogen.md`](docs/anforderungen-bewertungsbogen.md).
 
-```text
-src/mobilefrost/   Python controller package
-tests/             Automated tests
-sketches/          Arduino sketches, each in its own folder
-docs/              Design and implementation notes
-compose.yml        Controller and PostgreSQL services
-Dockerfile         Controller image
-pyproject.toml     Python package and dependencies
-```
-
-Run the tests locally with:
+## Architektur
 
 ```text
-python -m unittest discover -s tests -v
+Arduino-Sensoren --Seriell--> Raspberry-Pi-Controller --SQL--> PostgreSQL
+																			|
+																			+-- MQTT --> Mosquitto --> MQTT-App / Node-RED
+																			|
+																			+-- Seriell --> Arduino-Aktor --> LCD, Lüfter, Servo
+																			|
+																			+-- HTTP --> Temperatur-Dashboard
 ```
 
-## Raspberry Pi / Podman
+### Bestandteile
 
-The controller container expects these stable device names:
+- [`src/mobilefrost/`](src/mobilefrost/): Python-Controller, Datenbankzugriff,
+	MQTT-Adapter und Flask-Dashboard
+- [`sketches/`](sketches/): Arduino-Programme für Sensoren und Aktor
+- [`compose.yml`](compose.yml): PostgreSQL, Mosquitto, Controller, Dashboard und
+	Node-RED
+- [`tests/`](tests/): automatisierte Unit- und Dashboard-Tests
+- [`docs/`](docs/): technische Pläne und Nachweise zum Bewertungsbogen
 
-- `/dev/arduino_sensor_marten`
-- `/dev/arduino_sensor_andor`
-- `/dev/arduino_sensor_luis`
-- `/dev/arduino_aktor`
+## Hardware und Datenformate
 
-All sensors use the same temperature output format:
+Der Controller erwartet diese stabilen Gerätenamen:
+
+| Aufgabe | Gerätename | Sensor-ID |
+| --- | --- | --- |
+| Sensor Marten | `/dev/arduino_sensor_marten` | `arduino_sensor_marten` |
+| Sensor Andor | `/dev/arduino_sensor_andor` | `arduino_sensor_andor` |
+| Sensor Luis | `/dev/arduino_sensor_luis` | `arduino_sensor_luis` |
+| Aktor | `/dev/arduino_aktor` | - |
+
+Temperatursensoren senden über die serielle Schnittstelle bei 9600 Baud:
 
 ```text
 Aktuelle Temperatur: 22.50
 ```
 
-Each reading is written to the `temperatures` table with the matching `sensor_id`.
-The Luis sensor additionally reports `Aktuelle Luftfeuchtigkeit: <value>`.
-The actuator Arduino receives all latest temperatures as `D:<marten>;<andor>;<luis>`, for example `D:21.7;22.4;23.9`. On the 16x2 LCD, Marten is shown in the first row on the left, Andor on the right, and Luis in the second row on the right. The fan status remains in the second row on the left.
-
-Luis has a configured temperature correction of `-1.0 °C`. Every incoming
-temperature updates the LCD immediately; the DHT11 supplies a new measurement about
-every two seconds. Database writes are limited independently to one value per sensor
-every ten seconds.
-
-The controller starts with any number of connected sensors. Missing sensors are
-shown as `--.-` and retried every five seconds. A sensor that is connected later
-is detected without restarting the container. The actuator remains required; if
-it is missing, Docker restarts the controller until it becomes available.
-
-The Arduino sketches are stored below `sketches/`. Flash them onto the boards
-before starting Docker; Arduino code does not run inside the controller container.
-For `sketch_humidity`, install the Arduino libraries `DHT sensor library` and
-`Adafruit Unified Sensor` in the Arduino IDE.
-
-Start the services on the Linux host that exposes the four device paths:
+Der DHT11-Sketch sendet zusätzlich:
 
 ```text
+Aktuelle Luftfeuchtigkeit: 48.00
+```
+
+Der Aktor-Arduino empfängt unter anderem folgende Befehle:
+
+```text
+D:21.7;22.4;23.9   # drei Temperaturen für das LCD
+F:255              # Lüfter-PWM von 0 bis 255
+S:90               # Servo-Winkel von 0 bis 180 Grad
+```
+
+Der Luis-Sensor erhält im Controller eine Korrektur von `-1.0 °C`. Fehlende Sensoren
+werden auf dem LCD als `--.-` dargestellt und automatisch erneut verbunden.
+
+## Voraussetzungen
+
+- Raspberry Pi oder Linux-Rechner mit den vier seriellen Geräten
+- Podman mit Compose-Unterstützung
+- geflashte Arduino-Boards
+- Arduino-Bibliotheken `DHT sensor library` und `Adafruit Unified Sensor` für
+	[`sketch_humidity/sketch_humidity.ino`](sketches/sketch_humidity/sketch_humidity.ino)
+
+Die Sketches werden vor dem Containerstart mit der Arduino IDE auf die Boards
+geflasht. Der Arduino-Code läuft nicht im Container.
+
+## Starten
+
+Auf dem Linux-Rechner, der die seriellen Geräte bereitstellt:
+
+```bash
 podman compose up -d --build
 ```
 
-The Compose configuration mounts Linux `/dev` so hot-plugged serial devices become
-visible inside the running container. `group_add: keep-groups` preserves the host
-user's supplementary groups for serial access with rootless Podman.
+Der Stack startet PostgreSQL, Mosquitto, den Controller, das Dashboard und Node-RED.
+Die Datenbank wird im Volume `pgdata` und die Node-RED-Daten im Volume `nodered_data`
+gespeichert.
 
-## Temperature dashboard over Tailscale
+Logs und Status prüfen:
 
-The `dashboard` service reads the existing PostgreSQL measurements and is published
-only on Raspberry Pi loopback port `8080`. It shows current values and the last hour,
-24 hours, or seven days, refreshing every ten seconds.
-
-After starting the Compose stack, verify the local service on the Pi:
-
-```text
-curl http://127.0.0.1:8080
+```bash
+podman compose ps
+podman compose logs --tail=100 controller
 podman compose logs --tail=100 dashboard
 ```
 
-Enable **MagicDNS** in the Tailscale admin console under **DNS** if it is not already
-enabled. Then configure a persistent, tailnet-only HTTPS proxy on the Pi:
+Die Compose-Konfiguration bindet `/dev` ein, damit später angeschlossene Sensoren
+erkannt werden können. Der Aktor ist für den Controller erforderlich; fehlt er,
+wird der Container neu gestartet.
 
-```text
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+## Dashboard
+
+Das Dashboard ist nur auf dem Raspberry-Pi-Loopback unter Port `8080` veröffentlicht:
+
+```bash
+curl http://127.0.0.1:8080
+```
+
+Es zeigt aktuelle Messwerte sowie Zeitreihen für eine Stunde, 24 Stunden oder sieben
+Tage. Die Aktualisierung erfolgt alle zehn Sekunden. Für den Zugriff von einem
+Laptop kann Tailscale Serve verwendet werden:
+
+```bash
 sudo tailscale serve --bg http://127.0.0.1:8080
-tailscale serve status
+
 ```
 
-The first command prints the HTTPS URL, normally similar to
-`https://raspberrypi.<tailnet>.ts.net`. Open that URL on the laptop while Tailscale is
-connected. The first Serve setup can print an admin-console link for enabling HTTPS;
-open it once and approve the feature.
+Tailscale Funnel soll nicht aktiviert werden, da das Dashboard nur im eigenen
+Tailnet erreichbar sein soll.
 
-The default Tailscale policy allows devices in the same tailnet to connect, so no ACL
-change is required. If the tailnet uses a custom deny-by-default policy, grant the
-laptop user or device access to TCP port `443` on the Raspberry Pi. Do not enable
-Tailscale Funnel, because Funnel would expose the dashboard publicly.
+## Datenbank
 
-Inspect or disable the proxy with:
+Messwerte werden in PostgreSQL in der Tabelle `temperatures` gespeichert:
 
-```text
-tailscale serve status
-sudo tailscale serve --https=443 off
-```
+| Spalte | Bedeutung |
+| --- | --- |
+| `id` | fortlaufende ID |
+| `timestamp` | Zeitpunkt der Messung |
+| `sensor_id` | zugehöriger Arduino-Sensor |
+| `value` | Temperaturwert in °C |
 
-## MQTT mobile control and Node-RED
+Pro Sensor wird höchstens ein Datenbankwert alle zehn Sekunden geschrieben. Das LCD
+und MQTT werden bei jedem eingehenden Messwert aktualisiert.
 
-The Compose stack includes an Eclipse Mosquitto broker and Node-RED. The controller
-publishes retained temperature updates to MQTT and accepts simple actuator commands
-from mobile MQTT apps.
+## MQTT und Node-RED
 
-Start the stack:
+Der MQTT-Broker ist unter Port `1883` erreichbar. Der Controller veröffentlicht
+beibehaltene Nachrichten und nimmt Aktor-Befehle entgegen.
 
-```text
-podman compose up -d --build
-```
+| Zweck | Topic | Payload |
+| --- | --- | --- |
+| Temperatur Marten | `mobilefrost/temperatures/arduino_sensor_marten` | JSON |
+| Temperatur Andor | `mobilefrost/temperatures/arduino_sensor_andor` | JSON |
+| Temperatur Luis | `mobilefrost/temperatures/arduino_sensor_luis` | JSON |
+| Kühlstatus | `mobilefrost/status/cooling` | JSON |
+| Lüfter setzen | `mobilefrost/actuators/fan/set` | `0` bis `255` |
+| Klappe setzen | `mobilefrost/actuators/flap/set` | `0` bis `90` |
 
-MQTT topics for MQTT Dash or MQTT Explorer:
+Node-RED läuft auf dem Raspberry Pi unter `127.0.0.1:1880`. Innerhalb des Compose-
+Netzwerks verwenden MQTT-Nodes den Broker `mosquitto` auf Port `1883`. Ein konkreter
+Node-RED-Flow ist in diesem Repository noch nicht versioniert.
 
-- `mobilefrost/temperatures/arduino_sensor_marten`
-- `mobilefrost/temperatures/arduino_sensor_andor`
-- `mobilefrost/temperatures/arduino_sensor_luis`
-- `mobilefrost/status/cooling`
-- publish `0` to `255` to `mobilefrost/actuators/fan/set`
-- publish `0` to `90` to `mobilefrost/actuators/flap/set`
+Die automatische Kühlregel schaltet ab einer maximalen Temperatur über `26.0 °C`
+den Lüfter ein. Die Klappe öffnet erst ab `30.0 °C` und schließt darunter wieder.
+Damit entspricht die Lüfter-Schwelle dem roten LED-Zustand des DHT11-Sketches.
+Manuelle MQTT-Befehle können beim nächsten Temperaturwert durch diese Automatik
+überschrieben werden.
 
-The bundled broker listens on port `1883`. Expose it only on the trusted lab network
-or through Tailscale. Node-RED is published on Raspberry Pi loopback port `1880`; use
-Tailscale Serve or an SSH tunnel when editing flows remotely. In Node-RED, connect MQTT
-nodes to broker host `mosquitto` and port `1883`.
+## Windows-Tests
 
-Manual actuator commands are prototype controls. The automatic cooling rule remains
-active and can overwrite manual fan or flap values on the next temperature update.
-
-## Windows bridge
-
-For local Windows testing, adjust the COM ports in `windows_serial_bridge.py`. The bridge writes both sensors to the same PostgreSQL table using the sensor IDs `arduino_sensor_marten` and `arduino_sensor_andor`.
+Für lokale Tests ohne echte Linux-Gerätenamen kann eine serielle Windows-Brücke
+verwendet werden. Dazu müssen die COM-Ports in `windows_serial_bridge.py` angepasst
+werden. Die Brücke verwendet die Sensor-IDs `arduino_sensor_marten` und
+`arduino_sensor_andor`.
